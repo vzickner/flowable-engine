@@ -60,13 +60,12 @@ public class FlowableMailClientCreator {
         BaseMailHostServerConfiguration serverConfiguration = new BaseMailHostServerConfiguration();
         serverConfiguration.setHost(host);
 
-        if (mailServer.isMailServerUseSSL()) {
+        if (mailServer.isMailServerUseTLS()) {
+            serverConfiguration.setPort(mailServer.getMailServerPort());
+            serverConfiguration.setTransport(MailHostServerConfiguration.Transport.SMTPS_TLS);
+        } else if (mailServer.isMailServerUseSSL()) {
             serverConfiguration.setPort(mailServer.getMailServerSSLPort());
-            if (mailServer.isMailServerUseSSL()) {
-                serverConfiguration.setTransport(MailHostServerConfiguration.Transport.SMTPS_TLS);
-            } else {
-                serverConfiguration.setTransport(MailHostServerConfiguration.Transport.SMTPS);
-            }
+            serverConfiguration.setTransport(MailHostServerConfiguration.Transport.SMTPS);
         } else {
             serverConfiguration.setPort(mailServer.getMailServerPort());
             serverConfiguration.setTransport(MailHostServerConfiguration.Transport.SMTP);
