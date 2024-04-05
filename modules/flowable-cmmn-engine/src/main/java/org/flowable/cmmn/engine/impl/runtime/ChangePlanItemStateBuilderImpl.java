@@ -94,6 +94,12 @@ public class ChangePlanItemStateBuilderImpl implements ChangePlanItemStateBuilde
     }
 
     @Override
+    public ChangePlanItemStateBuilder changeToAvailableStateByPlanItemDefinition(MoveToAvailablePlanItemDefinitionMapping planItemDefinitionMapping) {
+        changeToAvailableStatePlanItemDefinitions.add(planItemDefinitionMapping);
+        return this;
+    }
+
+    @Override
     public ChangePlanItemStateBuilder changeToAvailableStateByPlanItemDefinitionIds(List<String> planItemDefinitionIds) {
         if (planItemDefinitionIds != null) {
             for (String planItemDefinitionId : planItemDefinitionIds) {
