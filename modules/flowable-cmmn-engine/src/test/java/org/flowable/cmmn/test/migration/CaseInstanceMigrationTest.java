@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
+import org.assertj.core.groups.Tuple;
 import org.flowable.cmmn.api.history.HistoricMilestoneInstance;
 import org.flowable.cmmn.api.history.HistoricPlanItemInstance;
 import org.flowable.cmmn.api.migration.ActivatePlanItemDefinitionMapping;
@@ -5483,6 +5484,33 @@ public class CaseInstanceMigrationTest extends AbstractCaseMigrationTest {
                 .extracting(PlanItemInstance::getName)
                 .filteredOn(Objects::nonNull)
                 .doesNotContain("Event Listener");
+    }
+
+    @Test
+    void migrateWithVariableEventListenerAndClosingStage() {
+        // Arrange
+        deployCaseDefinition("test1", "org/flowable/cmmn/test/migration/variable-change-listener-human-task.cmmn.xml");
+        CaseInstance caseInstance = cmmnRuntimeService.createCaseInstanceBuilder().caseDefinitionKey("testMigrationWithVariableListener").start();
+        CaseDefinition destinationDefinition = deployCaseDefinition("test1", "org/flowable/cmmn/test/migration/variable-change-listener-service-task.cmmn.xml");
+
+        // Act
+        cmmnMigrationService.createCaseInstanceMigrationBuilder()
+                .migrateToCaseDefinition(destinationDefinition.getId())
+                .addTerminatePlanItemDefinitionMapping(PlanItemDefinitionMappingBuilder.createTerminatePlanItemDefinitionMappingFor("cmmnTask_7"))
+                .addActivatePlanItemDefinitionMapping(PlanItemDefinitionMappingBuilder.createActivatePlanItemDefinitionMappingFor("cmmnTask_8"))
+                .migrate(caseInstance.getId());
+
+        // Assert
+        List<HistoricPlanItemInstance> historicPlanItemInstances = cmmnHistoryService.createHistoricPlanItemInstanceQuery()
+                .planItemInstanceCaseInstanceId(caseInstance.getId())
+                .list();
+        assertThat(historicPlanItemInstances)
+                .extracting(HistoricPlanItemInstance::getPlanItemDefinitionId, HistoricPlanItemInstance::getState)
+                .contains(
+                        new Tuple("cmmnStage_9", PlanItemInstanceState.COMPLETED), // sentry is force completed
+                        new Tuple("cmmnTask_7", PlanItemInstanceState.TERMINATED),
+                        new Tuple("cmmnTask_8", PlanItemInstanceState.WAITING_FOR_REPETITION)
+                );
     }
 
     protected class CustomTenantProvider implements DefaultTenantProvider {
