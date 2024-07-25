@@ -399,5 +399,21 @@ public class AsyncTaskTest extends FlowableCmmnTestCase {
         assertThat(cmmnRuntimeService.getVariable(caseInstance.getId(), "serviceTaskVar2")).isEqualTo("secondST");
     }
 
+    @Test
+    @CmmnDeployment
+    public void testAsyncStartAndSetVariable() {
+        CaseInstance caseInstance = cmmnRuntimeService.createCaseInstanceBuilder()
+                .caseDefinitionKey("testCase")
+                .startAsync();
+
+        cmmnRuntimeService.setVariable(caseInstance.getId(), "testVar", true);
+
+        CaseInstance caseInstanceAfterSetVariable = cmmnRuntimeService.createCaseInstanceQuery()
+                .caseInstanceId(caseInstance.getId())
+                .singleResult();
+
+        assertThat(caseInstanceAfterSetVariable).isNotNull();
+    }
+
 
 }
