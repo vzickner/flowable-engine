@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:flowable="http://flowable.org/bpmn"
+             targetNamespace="http://flowable.org/test">
+    <process id="throwBpmnErrorViaEventProcess" name="Throw BpmnError After Event" isExecutable="true">
+        <startEvent id="start" />
+        <sequenceFlow id="flow1" sourceRef="start" targetRef="waitForEvent" />
+
+        <!-- Waits for an event dispatched (on the system channel) from the parent case. -->
+        <receiveTask id="waitForEvent" name="Wait For Event">
+            <extensionElements>
+                <flowable:eventType>triggerFaultEvent</flowable:eventType>
+                <flowable:eventCorrelationParameter name="correlationKey" value="${correlationKey}" />
+            </extensionElements>
+        </receiveTask>
+
+        <sequenceFlow id="flow2" sourceRef="waitForEvent" targetRef="serviceTask" />
+        <serviceTask id="serviceTask" name="Throw Error" flowable:class="org.flowable.cmmn.test.delegate.ThrowBpmnErrorJavaDelegate" />
+        <sequenceFlow id="flow3" sourceRef="serviceTask" targetRef="end" />
+        <endEvent id="end" />
+    </process>
+</definitions>

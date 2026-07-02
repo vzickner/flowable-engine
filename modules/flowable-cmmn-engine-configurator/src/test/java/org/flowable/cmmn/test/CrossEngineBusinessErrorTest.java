@@ -21,9 +21,14 @@ import org.flowable.cmmn.api.repository.CmmnDeployment;
 import org.flowable.cmmn.api.runtime.CaseInstance;
 import org.flowable.cmmn.api.runtime.PlanItemInstance;
 import org.flowable.cmmn.api.runtime.PlanItemInstanceState;
+import org.flowable.cmmn.api.runtime.PlanItemDefinitionType;
 import org.flowable.common.engine.api.delegate.BusinessError;
+import org.flowable.common.engine.impl.interceptor.EngineConfigurationConstants;
 import org.flowable.engine.repository.Deployment;
 import org.flowable.engine.runtime.ProcessInstance;
+import org.flowable.eventregistry.api.EventDeployment;
+import org.flowable.eventregistry.api.EventRepositoryService;
+import org.flowable.eventregistry.impl.EventRegistryEngineConfiguration;
 import org.flowable.task.api.Task;
 import org.junit.jupiter.api.Test;
 
@@ -480,6 +485,97 @@ public class CrossEngineBusinessErrorTest extends AbstractProcessEngineIntegrati
         } finally {
             deleteDeployments(cmmnDeployment, bpmnDeployment);
         }
+    }
+
+    /**
+     * CMMN Case
+     * ┌──────────────────────────────────────────────────────────────┐
+     * │  [Process Task]──fault sentry──▶[B]                          │
+     * │       │ starts                    ▲                          │
+     * │       ▼                           │ fault                    │
+     * │  BPMN: start → [Wait For Event] → [Throw Error] → end       │
+     * │                     ▲              throws BpmnError            │
+     * │  [Send Event]───────┘ (system channel, correlated)           │
+     * └──────────────────────────────────────────────────────────────┘
+     * The parent case's Send Event task dispatches an event (on the system channel) that is
+     * delivered synchronously, in-JVM, to the child process's Receive Event task. That drives
+     * the child process forward into the BpmnError — all inside the same, reused command context
+     * (a nested service call), which is the situation the fix in {@code ErrorPropagation} targets.
+     *
+     * Before the fix, the onError callback was skipped when the command context was reused, so the
+     * BpmnError bubbled up as a raw {@link BusinessError} instead of firing the fault sentry. This
+     * test guards that the fault now propagates to the case regardless.
+     */
+    @Test
+    public void testProcessTaskBpmnErrorTriggeredByEventPropagatesAsFault() {
+        CmmnDeployment cmmnDeployment = cmmnRepositoryService.createDeployment()
+                .addClasspathResource("org/flowable/cmmn/test/CrossEngineBusinessErrorTest.testProcessTaskBpmnErrorViaEvent.cmmn")
+                .deploy();
+        Deployment bpmnDeployment = processEngineRepositoryService.createDeployment()
+                .addClasspathResource("org/flowable/cmmn/test/CrossEngineBusinessErrorTest.testProcessTaskBpmnErrorViaEvent.bpmn20.xml")
+                .deploy();
+        EventRepositoryService eventRepositoryService = getEventRepositoryService();
+        EventDeployment eventDeployment = eventRepositoryService.createDeployment()
+                .addClasspathResource("org/flowable/cmmn/test/CrossEngineBusinessErrorTest.triggerFaultEvent.event")
+                .deploy();
+
+        try {
+            CaseInstance caseInstance = cmmnRuntimeService.createCaseInstanceBuilder()
+                    .caseDefinitionKey("testProcessTaskFaultViaEvent")
+                    .variable("correlationKey", "fault-1")
+                    .start();
+
+            // The child BPMN process should be waiting for the event, ProcessTask still ACTIVE
+            assertThat(processEngineRuntimeService.createExecutionQuery().activityId("waitForEvent").count()).isEqualTo(1);
+            assertThat(cmmnRuntimeService.createPlanItemInstanceQuery()
+                    .caseInstanceId(caseInstance.getId())
+                    .planItemInstanceState(PlanItemInstanceState.ACTIVE)
+                    .planItemDefinitionType(PlanItemDefinitionType.PROCESS_TASK)
+                    .list())
+                    .extracting(PlanItemInstance::getName)
+                    .containsExactly("Process Task");
+
+            // Manually activate the Send Event task: it dispatches the event on the system channel,
+            // which is delivered synchronously to the child process → service task throws BpmnError.
+            PlanItemInstance sendEvent = cmmnRuntimeService.createPlanItemInstanceQuery()
+                    .caseInstanceId(caseInstance.getId())
+                    .planItemInstanceName("Send Event")
+                    .planItemInstanceState(PlanItemInstanceState.ENABLED)
+                    .singleResult();
+            assertThat(sendEvent).isNotNull();
+            cmmnRuntimeService.startPlanItemInstance(sendEvent.getId());
+
+            // ProcessTask should be FAILED (BpmnError propagated as fault via callback, even in a reused context)
+            assertThat(cmmnRuntimeService.createPlanItemInstanceQuery()
+                    .caseInstanceId(caseInstance.getId())
+                    .planItemInstanceState(PlanItemInstanceState.FAILED)
+                    .includeEnded()
+                    .list())
+                    .extracting(PlanItemInstance::getName)
+                    .containsExactly("Process Task");
+
+            // The child BPMN process instance should be cleaned up
+            assertThat(processEngineRuntimeService.createProcessInstanceQuery().list()).isEmpty();
+
+            // B should be active (fault sentry fired)
+            List<Task> cmmnTasks = cmmnTaskService.createTaskQuery().caseInstanceId(caseInstance.getId()).list();
+            assertThat(cmmnTasks).extracting(Task::getName).containsExactly("B");
+
+            cmmnTaskService.complete(cmmnTasks.get(0).getId());
+            assertCaseInstanceEnded(caseInstance);
+
+        } finally {
+            eventRepositoryService.deleteDeployment(eventDeployment.getId());
+            deleteDeployments(cmmnDeployment, bpmnDeployment);
+        }
+    }
+
+    protected EventRepositoryService getEventRepositoryService() {
+        EventRegistryEngineConfiguration eventRegistryEngineConfiguration = (EventRegistryEngineConfiguration) processEngine
+                .getProcessEngineConfiguration()
+                .getEngineConfigurations()
+                .get(EngineConfigurationConstants.KEY_EVENT_REGISTRY_CONFIG);
+        return eventRegistryEngineConfiguration.getEventRepositoryService();
     }
 
     private void deleteDeployments(CmmnDeployment cmmnDeployment, Deployment bpmnDeployment) {

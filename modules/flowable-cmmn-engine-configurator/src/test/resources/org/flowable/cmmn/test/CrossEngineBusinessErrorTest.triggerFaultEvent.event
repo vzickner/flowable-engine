@@ -1,0 +1,11 @@
+{
+  "key": "triggerFaultEvent",
+  "name": "Trigger Fault Event",
+  "payload": [
+    {
+      "name": "correlationKey",
+      "type": "string",
+      "correlationParameter": true
+    }
+  ]
+}
