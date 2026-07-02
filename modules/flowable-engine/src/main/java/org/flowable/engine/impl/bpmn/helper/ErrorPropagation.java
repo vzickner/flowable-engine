@@ -116,8 +116,7 @@ public class ErrorPropagation {
             // If so, propagate the error via the callback instead of re-throwing.
             ExecutionEntity processInstance = CommandContextUtil.getExecutionEntityManager().findById(execution.getProcessInstanceId());
             CommandContext commandContext = CommandContextUtil.getCommandContext();
-            if (processInstance != null && processInstance.getCallbackId() != null && processInstance.getCallbackType() != null
-                    && commandContext != null && !commandContext.isReused()) {
+            if (processInstance != null && processInstance.getCallbackId() != null && processInstance.getCallbackType() != null) {
                 ProcessEngineConfigurationImpl processEngineConfiguration = CommandContextUtil.getProcessEngineConfiguration();
                 Map<String, List<RuntimeInstanceStateChangeCallback>> callbacks = processEngineConfiguration.getProcessInstanceStateChangedCallbacks();
                 if (callbacks != null && callbacks.containsKey(processInstance.getCallbackType())) {
